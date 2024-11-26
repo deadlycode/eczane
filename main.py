@@ -23,44 +23,79 @@ def scrape_eczaneler(sehir: str, ilce: str) -> List[Dict]:
         }
         
         response = requests.get(url, headers=headers)
+        if response.status_code == 404:
+            raise HTTPException(
+                status_code=404,
+                detail="Bu bölgede nöbetçi eczane bulunamadı"
+            )
         response.raise_for_status()
         
         soup = BeautifulSoup(response.text, 'html.parser')
-        table = soup.find('table', {'class': 'table'})
-        
-        if not table:
-            return []
-        
         eczaneler = []
-        rows = table.find('tbody').find_all('tr')
+        
+        # Tüm eczane satırlarını bul
+        rows = soup.find_all('div', {'class': 'row', 'style': 'font-size:110%;'})
+        
+        if not rows:
+            raise HTTPException(
+                status_code=404,
+                detail="Bu bölgede nöbetçi eczane bulunamadı"
+            )
         
         for row in rows:
             try:
-                isim_element = row.find('span', {'class': 'isim'})
-                adres_element = row.find('div', {'class': 'col-lg-6'})
-                telefon_element = row.find('div', {'class': 'col-lg-3 py-lg-2'})
-                
-                if isim_element and adres_element and telefon_element:
-                    isim = isim_element.text.strip()
-                    adres = adres_element.text.strip()
-                    telefon = telefon_element.text.strip()
+                # İsim
+                isim_span = row.find('span', {'class': 'isim'})
+                if not isim_span:
+                    continue
                     
-                    if isim and adres and telefon:  # Boş kayıtları filtrele
-                        eczane = {
-                            "isim": isim,
-                            "adres": adres,
-                            "telefon": telefon,
-                            "guncelleme": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        }
-                        eczaneler.append(eczane)
+                isim = isim_span.text.strip()
+                
+                # Adres ve telefon
+                col_divs = row.find_all('div', {'class': ['col-lg-6', 'col-lg-3']})
+                if len(col_divs) < 2:
+                    continue
+                
+                adres_div = next((div for div in col_divs if 'col-lg-6' in div.get('class', [])), None)
+                telefon_div = next((div for div in col_divs if 'col-lg-3' in div.get('class', [])), None)
+                
+                if not adres_div or not telefon_div:
+                    continue
+                
+                adres = ' '.join(adres_div.stripped_strings)
+                telefon = telefon_div.get_text(strip=True)
+                
+                if isim and adres and telefon:
+                    eczane = {
+                        "isim": isim,
+                        "adres": adres,
+                        "telefon": telefon,
+                        "guncelleme": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    }
+                    eczaneler.append(eczane)
+            
             except Exception as e:
                 print(f"Satır ayrıştırma hatası: {str(e)}")
                 continue
         
+        if not eczaneler:
+            raise HTTPException(
+                status_code=404,
+                detail="Bu bölgede nöbetçi eczane bulunamadı"
+            )
+            
         return eczaneler
         
+    except requests.RequestException as e:
+        print(f"HTTP isteği hatası: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Veri çekme hatası: Sunucuya erişilemedi"
+        )
+    except HTTPException as he:
+        raise he
     except Exception as e:
-        print(f"Veri çekme hatası: {str(e)}")
+        print(f"Genel hata: {str(e)}")
         raise HTTPException(
             status_code=500,
             detail=f"Veri çekme hatası: {str(e)}"
@@ -78,10 +113,4 @@ async def root():
 
 @app.get("/eczaneler/{sehir}/{ilce}")
 async def get_eczaneler(sehir: str, ilce: str) -> List[Dict]:
-    eczaneler = scrape_eczaneler(sehir, ilce)
-    if not eczaneler:
-        raise HTTPException(
-            status_code=404,
-            detail="Bu bölgede nöbetçi eczane bulunamadı"
-        )
-    return eczaneler
+    return scrape_eczaneler(sehir, ilce)
