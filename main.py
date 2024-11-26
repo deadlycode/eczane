@@ -16,90 +16,79 @@ app.add_middleware(
 )
 
 def scrape_foca_eczaneler() -> List[Dict]:
+    url = "https://www.eczaneler.gen.tr/nobetci-izmir-foca"
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    }
+    
     try:
-        url = "https://www.eczaneler.gen.tr/nobetci-izmir-foca"
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        }
-        
-        response = requests.get(url, headers=headers)
-        if response.status_code == 404:
-            raise HTTPException(
-                status_code=404,
-                detail="Foça'da nöbetçi eczane bulunamadı"
-            )
+        response = requests.get(url, headers=headers, timeout=10)
         response.raise_for_status()
         
         soup = BeautifulSoup(response.text, 'html.parser')
         eczaneler = []
         
-        # Tüm eczane satırlarını bul
-        rows = soup.find_all('div', {'class': 'row', 'style': 'font-size:110%;'})
+        # Aktif tab-pane'i bul (show active class'ına sahip olan)
+        aktif_tab = soup.find('div', {'class': 'tab-pane fade show active'})
+        if not aktif_tab:
+            raise HTTPException(status_code=404, detail="Aktif nöbetçi eczane verisi bulunamadı")
         
-        if not rows:
-            raise HTTPException(
-                status_code=404,
-                detail="Foça'da nöbetçi eczane bulunamadı"
-            )
+        # Tarih bilgisini al
+        tarih_div = aktif_tab.find('div', {'class': 'alert alert-warning'})
+        tarih = tarih_div.text.strip() if tarih_div else "Tarih bilgisi bulunamadı"
+        
+        # Eczane satırlarını bul
+        rows = aktif_tab.find_all('div', {'class': 'row', 'style': 'font-size:110%;'})
         
         for row in rows:
-            try:
-                # İsim
-                isim_span = row.find('span', {'class': 'isim'})
-                if not isim_span:
-                    continue
-                    
-                isim = isim_span.text.strip()
-                
-                # Adres ve telefon
-                col_divs = row.find_all('div', {'class': ['col-lg-6', 'col-lg-3']})
-                if len(col_divs) < 2:
-                    continue
-                
-                adres_div = next((div for div in col_divs if 'col-lg-6' in div.get('class', [])), None)
-                telefon_div = next((div for div in col_divs if 'col-lg-3' in div.get('class', [])), None)
-                
-                if not adres_div or not telefon_div:
-                    continue
-                
-                adres = ' '.join(adres_div.stripped_strings)
-                telefon = telefon_div.get_text(strip=True)
-                
-                if isim and adres and telefon:
-                    eczane = {
-                        "isim": isim,
-                        "adres": adres,
-                        "telefon": telefon,
-                        "guncelleme": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    }
-                    eczaneler.append(eczane)
-            
-            except Exception as e:
-                print(f"Satır ayrıştırma hatası: {str(e)}")
+            # Eczane adını bul
+            isim_span = row.find('span', {'class': 'isim'})
+            if not isim_span:
                 continue
+            isim = isim_span.text.strip()
+            
+            # Adres ve ek bilgileri al
+            adres_div = row.find('div', {'class': 'col-lg-6'})
+            if not adres_div:
+                continue
+                
+            # Adres metnini ve ek bilgileri ayır
+            adres_text = adres_div.get_text('\n', strip=True).split('\n')
+            adres = adres_text[0]
+            
+            # Ek bilgileri kontrol et
+            ek_bilgiler = []
+            for bilgi in adres_text[1:]:
+                if bilgi.startswith('»'):
+                    bilgi = bilgi.replace('»', '').strip()
+                ek_bilgiler.append(bilgi)
+            
+            # Telefon bilgisini al
+            telefon_div = row.find('div', {'class': 'col-lg-3 py-lg-2'})
+            telefon = telefon_div.text.strip() if telefon_div else "Telefon bilgisi bulunamadı"
+            
+            eczane = {
+                "isim": isim,
+                "adres": adres,
+                "telefon": telefon,
+                "ek_bilgiler": ek_bilgiler if ek_bilgiler else None,
+                "nobetci_tarih": tarih,
+                "kaynak": url,
+                "guncelleme": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+            eczaneler.append(eczane)
         
         if not eczaneler:
-            raise HTTPException(
-                status_code=404,
-                detail="Foça'da nöbetçi eczane bulunamadı"
-            )
+            raise HTTPException(status_code=404, detail="Nöbetçi eczane bulunamadı")
             
         return eczaneler
         
+    except requests.Timeout:
+        raise HTTPException(status_code=504, detail="Sunucu yanıt vermedi")
     except requests.RequestException as e:
-        print(f"HTTP isteği hatası: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail="Veri çekme hatası: Sunucuya erişilemedi"
-        )
-    except HTTPException as he:
-        raise he
+        raise HTTPException(status_code=500, detail=f"Veri çekme hatası: {str(e)}")
     except Exception as e:
-        print(f"Genel hata: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Veri çekme hatası: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Beklenmeyen hata: {str(e)}")
 
 @app.get("/")
 async def root():
