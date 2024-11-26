@@ -15,9 +15,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-def scrape_eczaneler(sehir: str, ilce: str) -> List[Dict]:
+def scrape_foca_eczaneler() -> List[Dict]:
     try:
-        url = f"https://www.eczaneler.gen.tr/nobetci-{sehir}-{ilce}"
+        url = "https://www.eczaneler.gen.tr/nobetci-izmir-foca"
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         }
@@ -26,7 +26,7 @@ def scrape_eczaneler(sehir: str, ilce: str) -> List[Dict]:
         if response.status_code == 404:
             raise HTTPException(
                 status_code=404,
-                detail="Bu bölgede nöbetçi eczane bulunamadı"
+                detail="Foça'da nöbetçi eczane bulunamadı"
             )
         response.raise_for_status()
         
@@ -39,7 +39,7 @@ def scrape_eczaneler(sehir: str, ilce: str) -> List[Dict]:
         if not rows:
             raise HTTPException(
                 status_code=404,
-                detail="Bu bölgede nöbetçi eczane bulunamadı"
+                detail="Foça'da nöbetçi eczane bulunamadı"
             )
         
         for row in rows:
@@ -81,7 +81,7 @@ def scrape_eczaneler(sehir: str, ilce: str) -> List[Dict]:
         if not eczaneler:
             raise HTTPException(
                 status_code=404,
-                detail="Bu bölgede nöbetçi eczane bulunamadı"
+                detail="Foça'da nöbetçi eczane bulunamadı"
             )
             
         return eczaneler
@@ -90,7 +90,7 @@ def scrape_eczaneler(sehir: str, ilce: str) -> List[Dict]:
         print(f"HTTP isteği hatası: {str(e)}")
         raise HTTPException(
             status_code=500,
-            detail=f"Veri çekme hatası: Sunucuya erişilemedi"
+            detail="Veri çekme hatası: Sunucuya erişilemedi"
         )
     except HTTPException as he:
         raise he
@@ -104,13 +104,13 @@ def scrape_eczaneler(sehir: str, ilce: str) -> List[Dict]:
 @app.get("/")
 async def root():
     return {
-        "message": "Nöbetçi Eczane API",
+        "message": "Foça Nöbetçi Eczane API",
         "status": "active",
         "endpoints": {
-            "eczaneler": "/eczaneler/{sehir}/{ilce}"
+            "eczaneler": "/eczaneler"
         }
     }
 
-@app.get("/eczaneler/{sehir}/{ilce}")
-async def get_eczaneler(sehir: str, ilce: str) -> List[Dict]:
-    return scrape_eczaneler(sehir, ilce)
+@app.get("/eczaneler")
+async def get_foca_eczaneler() -> List[Dict]:
+    return scrape_foca_eczaneler()
